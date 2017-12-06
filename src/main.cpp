@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <math.h>
 #include <thread>
 #include <uWS/uWS.h>
@@ -35,7 +36,7 @@ static const std::string RESPONSE_MANUAL           = "42[\"manual\",{}]";
 
 /* STRUCT DECLARATION ********************************************************/
 
-struct CarDataPackage
+struct Car
 {
   double x;
   double y;
@@ -54,6 +55,7 @@ struct CarDataPackage
 
   // Sensor Fusion Data, a list of all other cars on the same side of the road.
   //auto sensor_fusion = messageJson[1]["sensor_fusion"];
+  std::map<size_t, Car> adjacentCars;
 };
 
 /* STATIC DECLARATIONS *******************************************************/
@@ -85,7 +87,7 @@ static std::string getData(const std::string& message);
  *
  * @return The car data package.
  */
-static CarDataPackage parseMessage(const json& message);
+static Car parseMessage(const json& message);
 
 /**
  * @brief Loads a data file.
@@ -137,11 +139,11 @@ getData(const std::string& message)
   return result;
 }
 
-CarDataPackage
+Car
 parseMessage(const json& message)
 {
   const json     dataObject = message[DATA_PACKAGE_OBJECT_INDEX];
-  CarDataPackage data;
+  Car data;
 
   data.x     = dataObject["x"];
   data.y     = dataObject["y"];
@@ -157,6 +159,27 @@ parseMessage(const json& message)
   // Previous path's end s and d values
   data.end_path_s = dataObject["end_path_s"];
   data.end_path_d = dataObject["end_path_d"];
+
+  //[ id, x, y, vx, vy, s, d]
+  const auto   sensorInformation = message[1]["sensor_fusion"];
+  const size_t detectedCarsCount = sensorInformation.size();
+
+  for (size_t i = 0; i < detectedCarsCount; ++i)
+  {
+    Car detected;
+
+    const size_t id = sensorInformation[i][0];
+    const double vx = sensorInformation[i][3];
+    const double vy = sensorInformation[i][4];
+
+    detected.x     = sensorInformation[i][1];
+    detected.y     = sensorInformation[i][2];
+    detected.s     = sensorInformation[i][5];
+    detected.d     = sensorInformation[i][6];
+    detected.speed = sqrt(pow(vx, 2) + pow(vy, 2));
+
+    data.adjacentCars.insert(std::make_pair(id, detected));
+  }
 
   return data;
 }
@@ -233,7 +256,7 @@ onMessage(uWS::WebSocket<uWS::SERVER> webSocket, char* data, size_t length, uWS:
 
     if (event == EVENT_TELEMETRY)
     {
-      CarDataPackage car = parseMessage(messageJson);
+      Car car = parseMessage(messageJson);
 
       // Sensor Fusion Data, a list of all other cars on the same side of the road.
       auto sensor_fusion = messageJson[1]["sensor_fusion"];
@@ -267,7 +290,6 @@ onMessage(uWS::WebSocket<uWS::SERVER> webSocket, char* data, size_t length, uWS:
 
           if ((check_car_s > car.s) && (check_car_s - car.s) < 30)
           {
-            std::cout << "TOO CLOSE!!!!" << std::endl;
             too_close = true;
 
             if (g_currentLane > 0)
@@ -284,7 +306,6 @@ onMessage(uWS::WebSocket<uWS::SERVER> webSocket, char* data, size_t length, uWS:
       {
         g_currentVelocity += .224;
       }
-
 
       // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
       // Later we will interpolate these waypoints with a spline
