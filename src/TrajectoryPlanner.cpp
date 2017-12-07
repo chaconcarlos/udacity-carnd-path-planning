@@ -8,13 +8,20 @@
 
 /* DEFINITIONS ***************************************************************/
 
-static const int    DEFAULT_TRAJECTORY_POINTS    = 50;
-static const int    DEFAULT_REFERENCE_LANE       = 1;
-static const double DEFAULT_POINTS_INTERVAL      = 0.02;
-static const double MAX_SPEED_OFFSET             = 0.5;
-static const double COLLISION_DISTANCE           = 30.0;
-static const double TRAJECTORY_DISTANCE          = 30.0;
-static const double ON_COLLISION_SPEED_VARIATION = .224;
+static const int    DEFAULT_TRAJECTORY_POINTS = 50;
+static const int    DEFAULT_REFERENCE_LANE    = 1;
+static const double DEFAULT_POINTS_INTERVAL   = 0.02;
+static const double MAX_SPEED_OFFSET          = 0.5;
+static const double COLLISION_DISTANCE        = 30.0;
+static const double TRAJECTORY_DISTANCE       = 30.0;
+static const double ON_COLLISION_ACCELERATION = .224;
+
+static const std::string STATE_INITIAL               = "II";
+static const std::string STATE_KEEP_LANE             = "KL";
+static const std::string STATE_PREPARE_LANE_CHANGE_R = "PLCR";
+static const std::string STATE_PREPARE_LANE_CHANGE_L = "PLCL";
+static const std::string STATE_LANE_CHANCE_L         = "LCL";
+static const std::string STATE_LANE_CHANCE_R         = "LCR";
 
 /* STATIC FUNCTIONS **********************************************************/
 
@@ -112,9 +119,9 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   possibleCollision = checkCollision(currentcarS, previousPathSize, m_currentLane, vehicle.getDetectedVehicles());
 
   if (possibleCollision)
-    m_currentSpeed -= ON_COLLISION_SPEED_VARIATION;
+    m_currentSpeed -= ON_COLLISION_ACCELERATION;
   else if (m_currentSpeed < m_referenceSpeed)
-    m_currentSpeed += ON_COLLISION_SPEED_VARIATION;
+    m_currentSpeed += ON_COLLISION_ACCELERATION;
 
   // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
   // Later we will interpolate these waypoints with a spline
