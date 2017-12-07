@@ -40,8 +40,7 @@ size_t getClosestWaypoint(
  *
  * @return The index of the next waypoint.
  */
-size_t
-NextWaypoint(
+size_t NextWaypoint(
   const double x,
   const double y,
   const double theta,
@@ -59,8 +58,7 @@ NextWaypoint(
  *
  * @return std::vector with the s and d coordinates.
  */
-std::vector<double>
-toFrenet(
+std::vector<double> toFrenet(
   const double x,
   const double y,
   const double theta,
@@ -78,14 +76,12 @@ toFrenet(
  *
  * @return std::vector with the x and y coordinates.
  */
-std::vector<double>
-toCartesian(
+std::vector<double> toCartesian(
   const double s,
   const double d,
   const std::vector<double>& maps_s,
   const std::vector<double>& maps_x,
   const std::vector<double>& maps_y);
-
 } /* namespace PathPlanning */
 } /* namespace CardND */
 
