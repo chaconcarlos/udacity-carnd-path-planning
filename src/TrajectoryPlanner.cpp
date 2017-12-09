@@ -1,10 +1,22 @@
 /* INCLUDES ******************************************************************/
 
-#include "spline.h"
+#include "TrajectoryPlanner.h"
+
+#include <stddef.h>
+#include <cmath>
+#include <cstdlib>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <vector>
 
 #include "Math.h"
 #include "Navigation.h"
-#include "TrajectoryPlanner.h"
+#include "spline.h"
+
+
+
+#include <iostream>
 
 /* DEFINITIONS ***************************************************************/
 
@@ -12,9 +24,21 @@ static const int    DEFAULT_TRAJECTORY_POINTS = 50;
 static const int    DEFAULT_REFERENCE_LANE    = 1;
 static const double DEFAULT_POINTS_INTERVAL   = 0.02;
 static const double MAX_SPEED_OFFSET          = 0.5;
-static const double COLLISION_DISTANCE        = 30.0;
+static const double COLLISION_DISTANCE        = 25.0;
 static const double TRAJECTORY_DISTANCE       = 30.0;
-static const double ON_COLLISION_ACCELERATION = .224;
+static const double DEFAULT_ACCELERATION      = .224;
+static const double COST_COLLISION            = pow(10, 5);
+static const double COST_CHANGE_LANES         = pow(10, 2);
+
+/* DECLARATIONS **************************************************************/
+
+struct Kinematics
+{
+  double score        = std::numeric_limits<double>::max();
+  double speed        = 0;
+  double acceleration = 0;
+  int    lane         = 0;
+};
 
 /* STATIC FUNCTIONS **********************************************************/
 
@@ -57,9 +81,8 @@ checkCollision(
   const double egoVehicleS,
   const int pathSize,
   const int targetLane,
-  const std::map<size_t, Vehicle> detectedVehicles)
+  const std::map<size_t, Vehicle>& detectedVehicles)
 {
-
   bool possibleCollision = false;
 
   std::map<size_t, Vehicle>::const_iterator vehicle = detectedVehicles.begin();
@@ -75,13 +98,37 @@ checkCollision(
   return possibleCollision;
 }
 
+static std::map< int, std::vector<Vehicle> >
+sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
+{
+  std::map< int, std::vector<Vehicle> > result;
+
+  std::map<size_t, Vehicle>::const_iterator vehicle = detectedVehicles.begin();
+
+  for (; vehicle != detectedVehicles.end(); ++vehicle)
+  {
+    for (int i = 0; i < road.getLaneCount(); ++i)
+    {
+      const double laneD          = 2 + 4 * i;
+      const double laneLowerLimit = laneD - 2;
+      const double laneUpperLimit = laneD + 2;
+      const double vehicleD       = vehicle->second.getD();
+
+      if (vehicleD > laneLowerLimit && vehicleD < laneUpperLimit)
+        result[i].push_back(vehicle->second);
+    }
+  }
+
+  return result;
+}
+
 static int
 chooseLane(
   const double egoVehicleS,
   const int pathSize,
   const int currentLane,
   const Road& road,
-  const std::map<size_t, Vehicle> detectedVehicles)
+  const std::map<size_t, Vehicle>& detectedVehicles)
 {
   std::vector<int> possibleLanes;
   int              finalLane = currentLane;
@@ -105,6 +152,97 @@ chooseLane(
   }
 
   return finalLane;
+}
+
+static Kinematics
+getBestKinematics(
+  const double egoVehicleS,
+  const int pathSize,
+  const int currentLane,
+  const Road& road,
+  const std::map< int, std::vector<Vehicle> >& detectedVehicles)
+{
+  Kinematics       bestKinematics;
+  std::vector<int> possibleLanes;
+  const double     maxSpeed = road.getMaxSpeed() - MAX_SPEED_OFFSET;
+
+  possibleLanes.push_back(currentLane - 1);
+  possibleLanes.push_back(currentLane);
+  possibleLanes.push_back(currentLane + 1);
+
+  for (int i = 0; i < possibleLanes.size(); ++i)
+  {
+    int        lane        = possibleLanes[i];
+    const bool isValidLane = lane >= 0 && lane <= road.getLaneCount() - 1;
+    Kinematics currentKinematics;
+
+    std::cout << "  Checking lane " << lane << "..." << std::endl;
+
+    currentKinematics.score        = 0;
+    currentKinematics.speed        = maxSpeed;
+    currentKinematics.acceleration = DEFAULT_ACCELERATION;
+    currentKinematics.lane         = lane;
+
+    if (lane != currentLane)
+      currentKinematics.score += COST_CHANGE_LANES;
+
+    if (!isValidLane)
+      continue;
+
+    if (detectedVehicles.find(lane) != detectedVehicles.end())
+    {
+      const std::vector<Vehicle>           vehiclesInlane = detectedVehicles.at(lane);
+      std::vector<Vehicle>::const_iterator vehicle        = vehiclesInlane.begin();
+
+      double bestDistanceToEgo = 0;
+
+      for (; vehicle != vehiclesInlane.end(); ++vehicle)
+      {
+        std::cout << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() <<std::endl;
+
+        const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
+        const double s                 = vehicle->getS() + finalPathDistance;
+        const bool   isAhead           = s > egoVehicleS;
+        double       collisionDistance = COLLISION_DISTANCE;
+        double       distanceToEgo     = abs(s - egoVehicleS);
+        bool         isOnCollision     = false;
+
+        if (!isAhead)
+        {
+          distanceToEgo     = abs(vehicle->getS() - egoVehicleS);
+          collisionDistance = 15;
+        }
+
+        if (distanceToEgo < collisionDistance)
+        {
+          isOnCollision            = true;
+          currentKinematics.score += COST_COLLISION;
+        }
+
+        std::cout << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
+
+        if (isAhead && isOnCollision)
+        {
+          currentKinematics.speed        = vehicle->getSpeed();
+          currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
+        }
+
+        const double speedDifference = maxSpeed - currentKinematics.speed;
+
+        if (speedDifference > 0)
+          currentKinematics.score += pow(speedDifference, 2);
+      }
+    }
+
+    std::cout << "    Final lane score: " << currentKinematics.score << std::endl;
+
+    if (currentKinematics.score < bestKinematics.score)
+      bestKinematics = currentKinematics;
+  }
+
+  std::cout << "  Best Kinematics - score: " << bestKinematics.score << ", lane: " << bestKinematics.lane << ", acceleration: " << bestKinematics.acceleration << std::endl;
+
+  return bestKinematics;
 }
 
 } /* namespace PathPlanning */
@@ -147,6 +285,12 @@ TrajectoryPlanner::setPointsInterval(const double interval)
 Trajectory
 TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 {
+  static int analisysCount = 0;
+
+  std::cout << "Starting analysis " << analisysCount << "..." << std::endl;
+
+  analisysCount++;
+
   const std::vector<double> previousPathXs    = vehicle.getPreviousPathXs();
   const std::vector<double> previousPathYs    = vehicle.getPreviousPathYs();
   const int                 previousPathSize  = previousPathXs.size();
@@ -154,13 +298,21 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   bool                      possibleCollision = false;
   Trajectory                trajectory;
 
+  std::cout << "  Ego vehicle is at s: " << currentcarS << " in lane: " << m_currentLane << " at simulator speed: " << vehicle.getSpeed() << " my speed: " << m_currentSpeed << std::endl;
+
+  std::map< int, std::vector<Vehicle> > detectedVehiclesByLane = sortByLane(m_road, vehicle.getDetectedVehicles());
+
   if (previousPathSize > 0)
     currentcarS = vehicle.getFinalS();
 
-  possibleCollision = checkCollision(currentcarS, previousPathSize, m_currentLane, vehicle.getDetectedVehicles());
+//  possibleCollision = checkCollision(currentcarS, previousPathSize, m_currentLane, vehicle.getDetectedVehicles());
 
-  if (possibleCollision)
-    m_currentLane = chooseLane(currentcarS, previousPathSize, m_currentLane, m_road, vehicle.getDetectedVehicles());
+//  if (possibleCollision)
+//    m_currentLane = chooseLane(currentcarS, previousPathSize, m_currentLane, m_road, vehicle.getDetectedVehicles());
+
+  const Kinematics kinematics = getBestKinematics(currentcarS, previousPathSize, m_currentLane, m_road, detectedVehiclesByLane);
+
+  m_currentLane = kinematics.lane;
 
   // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
   // Later we will interpolate these waypoints with a spline
@@ -250,10 +402,12 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 
   for (int i = 1; i <= m_maxTrajectoryPoints - previousPathSize; ++i)
   {
-    if (possibleCollision)
-      m_currentSpeed -= ON_COLLISION_ACCELERATION;
-    else if (m_currentSpeed < m_referenceSpeed)
-      m_currentSpeed += ON_COLLISION_ACCELERATION;
+    const double newSpeed = m_currentSpeed + kinematics.acceleration;
+
+    if (newSpeed < m_referenceSpeed)
+      m_currentSpeed = newSpeed;
+    else
+      m_currentSpeed = m_referenceSpeed;
 
     const double n       = target_dist / (DEFAULT_POINTS_INTERVAL * m_currentSpeed / 2.24); // 2.24 from the conversion to m/s
     double       x_point = x_add_on + target_x / n;
