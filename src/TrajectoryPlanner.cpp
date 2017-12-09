@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -14,23 +15,28 @@
 #include "Navigation.h"
 #include "spline.h"
 
-
-
-#include <iostream>
-
 /* DEFINITIONS ***************************************************************/
 
-static const int    DEFAULT_TRAJECTORY_POINTS = 50;
-static const int    DEFAULT_REFERENCE_LANE    = 1;
-static const double DEFAULT_POINTS_INTERVAL   = 0.02;
-static const double MAX_SPEED_OFFSET          = 0.5;
-static const double COLLISION_DISTANCE        = 25.0;
-static const double TRAJECTORY_DISTANCE       = 30.0;
-static const double DEFAULT_ACCELERATION      = .224;
-static const double COST_COLLISION            = pow(10, 5);
-static const double COST_CHANGE_LANES         = pow(10, 2);
+static const int    DEFAULT_TRAJECTORY_POINTS   = 50;
+static const int    DEFAULT_REFERENCE_LANE      = 1;
+static const double DEFAULT_POINTS_INTERVAL     = 0.02;
+static const double MAX_SPEED_OFFSET            = 0.5;
+static const double COLLISION_DISTANCE          = 25.0;
+static const double PASSING_COLLISION_DISTANCE  = 15.0;
+static const double CRITICAL_COLLISION_DISTANCE = 10.0;
+static const double TRAJECTORY_DISTANCE         = 25.0;
+static const double DEFAULT_ACCELERATION        = .224;
+static const double COST_COLLISION              = 10000.00;
+static const double COST_CHANGE_LANES           = 100.00;
+static const double COST_COLLISION_DISTANCE     = 1000.00;
+static const double COST_SPEED_DIFFERENCE       = 50.00;
 
 /* DECLARATIONS **************************************************************/
+
+namespace CardND
+{
+namespace PathPlanning
+{
 
 struct Kinematics
 {
@@ -39,6 +45,9 @@ struct Kinematics
   double acceleration = 0;
   int    lane         = 0;
 };
+
+} /* namespace PathPlanning */
+} /* namespace CardND */
 
 /* STATIC FUNCTIONS **********************************************************/
 
@@ -207,30 +216,37 @@ getBestKinematics(
         double       distanceToEgo     = abs(s - egoVehicleS);
         bool         isOnCollision     = false;
 
+        if (distanceToEgo == 0)
+          distanceToEgo = std::numeric_limits<double>::epsilon();
+
         if (!isAhead)
         {
           distanceToEgo     = abs(vehicle->getS() - egoVehicleS);
-          collisionDistance = 15;
+          collisionDistance = PASSING_COLLISION_DISTANCE;
         }
 
         if (distanceToEgo < collisionDistance)
         {
           isOnCollision            = true;
           currentKinematics.score += COST_COLLISION;
+          currentKinematics.score += collisionDistance / distanceToEgo * COST_COLLISION_DISTANCE;
         }
 
         std::cout << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
 
         if (isAhead && isOnCollision)
         {
+          // TODO: Model what to do on critical collision. Happened when a car unexpectedly changed lanes.
+          //const bool isOnCriticalCollision = distanceToEgo < CRITICAL_COLLISION_DISTANCE;
+
           currentKinematics.speed        = vehicle->getSpeed();
           currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
+
+          const double speedDifference = maxSpeed - currentKinematics.speed;
+
+          if (speedDifference > 0)
+            currentKinematics.score += speedDifference * COST_SPEED_DIFFERENCE;
         }
-
-        const double speedDifference = maxSpeed - currentKinematics.speed;
-
-        if (speedDifference > 0)
-          currentKinematics.score += pow(speedDifference, 2);
       }
     }
 
@@ -311,6 +327,9 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 //    m_currentLane = chooseLane(currentcarS, previousPathSize, m_currentLane, m_road, vehicle.getDetectedVehicles());
 
   const Kinematics kinematics = getBestKinematics(currentcarS, previousPathSize, m_currentLane, m_road, detectedVehiclesByLane);
+
+  if (m_currentLane != kinematics.lane)
+    std::cout << "  ======= CHANGING LANES ======" << std::endl;
 
   m_currentLane = kinematics.lane;
 
