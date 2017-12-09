@@ -42,7 +42,7 @@ Road::getMapMaxS() const
 }
 
 int
-Road::getLaneCount()
+Road::getLaneCount() const
 {
   return m_laneCount;
 }

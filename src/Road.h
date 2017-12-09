@@ -49,7 +49,7 @@ class Road
      *
      * @return The lane count for this road.
      */
-    int getLaneCount();
+    int getLaneCount() const;
 
     /**
      * @brief Gets the max speed of the road in miles/hour.

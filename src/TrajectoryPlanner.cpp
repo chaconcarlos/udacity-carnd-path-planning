@@ -16,13 +16,6 @@ static const double COLLISION_DISTANCE        = 30.0;
 static const double TRAJECTORY_DISTANCE       = 30.0;
 static const double ON_COLLISION_ACCELERATION = .224;
 
-static const std::string STATE_INITIAL               = "II";
-static const std::string STATE_KEEP_LANE             = "KL";
-static const std::string STATE_PREPARE_LANE_CHANGE_R = "PLCR";
-static const std::string STATE_PREPARE_LANE_CHANGE_L = "PLCL";
-static const std::string STATE_LANE_CHANCE_L         = "LCL";
-static const std::string STATE_LANE_CHANCE_R         = "LCR";
-
 /* STATIC FUNCTIONS **********************************************************/
 
 namespace CardND
@@ -33,37 +26,85 @@ namespace PathPlanning
 static bool
 checkCollision(
   const double egoVehicleS,
+  const double collisionDistance,
   const int pathSize,
   const int targetLane,
-  const std::map<size_t, Vehicle> detectedVehicles)
+  const Vehicle& vehicle)
 {
   const double laneD             = 2 + 4 * targetLane;
   const double laneLowerLimit    = laneD - 2;
   const double laneUpperLimit    = laneD + 2;
-  bool         possibleCollision = false;
+  bool         isOnCollisionPath = false;
+
+  const double d     = vehicle.getD();
+  const double speed = vehicle.getSpeed();
+
+  if (d > laneLowerLimit && d < laneUpperLimit)
+  {
+    const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * speed;
+    const double s                 = vehicle.getS() + finalPathDistance;
+    const bool   isOnSamePath      = s > egoVehicleS;
+
+    if (isOnSamePath && (s - egoVehicleS) < collisionDistance)
+      isOnCollisionPath = true;
+  }
+
+  return isOnCollisionPath;
+}
+
+static bool
+checkCollision(
+  const double egoVehicleS,
+  const int pathSize,
+  const int targetLane,
+  const std::map<size_t, Vehicle> detectedVehicles)
+{
+
+  bool possibleCollision = false;
 
   std::map<size_t, Vehicle>::const_iterator vehicle = detectedVehicles.begin();
 
   for (; vehicle != detectedVehicles.end(); ++vehicle)
   {
-    const double d     = vehicle->second.getD();
-    const double speed = vehicle->second.getSpeed();
+    possibleCollision = checkCollision(egoVehicleS, COLLISION_DISTANCE, pathSize, targetLane, vehicle->second);
 
-    if (d > laneLowerLimit && d < laneUpperLimit)
-    {
-      const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * speed;
-      const double s                 = vehicle->second.getS() + finalPathDistance;
-      const bool   isOnSamePath      = s > egoVehicleS;
-
-      if (isOnSamePath && (s - egoVehicleS) < COLLISION_DISTANCE)
-      {
-        possibleCollision = true;
-        break;
-      }
-    }
+    if (possibleCollision)
+      break;
   }
 
   return possibleCollision;
+}
+
+static int
+chooseLane(
+  const double egoVehicleS,
+  const int pathSize,
+  const int currentLane,
+  const Road& road,
+  const std::map<size_t, Vehicle> detectedVehicles)
+{
+  std::vector<int> possibleLanes;
+  int              finalLane = currentLane;
+
+  possibleLanes.push_back(currentLane - 1);
+  possibleLanes.push_back(currentLane + 1);
+
+  for (int i = 0; i < possibleLanes.size(); ++i)
+  {
+    int        lane        = possibleLanes[i];
+    const bool isValidLane = lane >= 0 && lane <= road.getLaneCount() - 1;
+
+    if (!isValidLane)
+      continue;
+
+    if (checkCollision(egoVehicleS, pathSize, lane, detectedVehicles) == false)
+    {
+      finalLane = lane;
+      break;
+    }
+  }
+
+  return finalLane;
 }
 
 } /* namespace PathPlanning */
@@ -119,9 +160,7 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   possibleCollision = checkCollision(currentcarS, previousPathSize, m_currentLane, vehicle.getDetectedVehicles());
 
   if (possibleCollision)
-    m_currentSpeed -= ON_COLLISION_ACCELERATION;
-  else if (m_currentSpeed < m_referenceSpeed)
-    m_currentSpeed += ON_COLLISION_ACCELERATION;
+    m_currentLane = chooseLane(currentcarS, previousPathSize, m_currentLane, m_road, vehicle.getDetectedVehicles());
 
   // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
   // Later we will interpolate these waypoints with a spline
@@ -211,6 +250,11 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 
   for (int i = 1; i <= m_maxTrajectoryPoints - previousPathSize; ++i)
   {
+    if (possibleCollision)
+      m_currentSpeed -= ON_COLLISION_ACCELERATION;
+    else if (m_currentSpeed < m_referenceSpeed)
+      m_currentSpeed += ON_COLLISION_ACCELERATION;
+
     const double n       = target_dist / (DEFAULT_POINTS_INTERVAL * m_currentSpeed / 2.24); // 2.24 from the conversion to m/s
     double       x_point = x_add_on + target_x / n;
     double       y_point = spline(x_point);
