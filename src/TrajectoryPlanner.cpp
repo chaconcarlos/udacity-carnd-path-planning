@@ -17,20 +17,21 @@
 
 /* DEFINITIONS ***************************************************************/
 
-static const bool   ACTIVATE_LOGS               = false;
-static const int    DEFAULT_TRAJECTORY_POINTS   = 50;
-static const int    DEFAULT_REFERENCE_LANE      = 1;
-static const double DEFAULT_POINTS_INTERVAL     = 0.02;
-static const double MAX_SPEED_OFFSET            = 0.5;
-static const double COLLISION_DISTANCE          = 30.0;
-static const double PASSING_COLLISION_DISTANCE  = 10.0;
-static const double CRITICAL_COLLISION_DISTANCE = 10.0;
-static const double TRAJECTORY_DISTANCE         = 30.0;
-static const double DEFAULT_ACCELERATION        = .224;
-static const double COST_COLLISION              = 10000.00;
-static const double COST_CHANGE_LANES           = 100.00;
-static const double COST_COLLISION_DISTANCE     = 1000.00;
-static const double COST_SPEED_DIFFERENCE       = 50.00;
+static const bool   ACTIVATE_LOGS                = false;
+static const int    DEFAULT_TRAJECTORY_POINTS    = 50;
+static const int    DEFAULT_REFERENCE_LANE       = 1;
+static const double DEFAULT_POINTS_INTERVAL      = 0.02;
+static const double MAX_SPEED_OFFSET             = 0.5;
+static const double COLLISION_DISTANCE           = 30.0;
+static const double PASSING_COLLISION_DISTANCE   = 10.0;
+static const double CRITICAL_COLLISION_DISTANCE  = 10.0;
+static const double MAXIMUM_HORIZON_CAR_DISTANCE = 100.0;
+static const double TRAJECTORY_DISTANCE          = 30.0;
+static const double DEFAULT_ACCELERATION         = .224;
+static const double COST_COLLISION               = 10000.00;
+static const double COST_CHANGE_LANES            = 100.00;
+static const double COST_COLLISION_DISTANCE      = 1000.00;
+static const double COST_SPEED_DIFFERENCE        = 50.00;
 
 /* STRUCT DECLARATIONS **************************************************************/
 
@@ -172,7 +173,9 @@ getBestKinematics(
         }
       }
 
-      currentKinematics.score += (1.0 / minDistance) * 30.0;
+      if (minDistance < MAXIMUM_HORIZON_CAR_DISTANCE)
+        currentKinematics.score += (1.0 / minDistance) * 30.0;
+
       g_logStream << "    Minimum vehicle distance: " << minDistance << std::endl;
     }
 
