@@ -17,21 +17,22 @@
 
 /* DEFINITIONS ***************************************************************/
 
+static const bool   ACTIVATE_LOGS               = false;
 static const int    DEFAULT_TRAJECTORY_POINTS   = 50;
 static const int    DEFAULT_REFERENCE_LANE      = 1;
 static const double DEFAULT_POINTS_INTERVAL     = 0.02;
 static const double MAX_SPEED_OFFSET            = 0.5;
-static const double COLLISION_DISTANCE          = 25.0;
-static const double PASSING_COLLISION_DISTANCE  = 15.0;
+static const double COLLISION_DISTANCE          = 30.0;
+static const double PASSING_COLLISION_DISTANCE  = 10.0;
 static const double CRITICAL_COLLISION_DISTANCE = 10.0;
-static const double TRAJECTORY_DISTANCE         = 25.0;
+static const double TRAJECTORY_DISTANCE         = 30.0;
 static const double DEFAULT_ACCELERATION        = .224;
 static const double COST_COLLISION              = 10000.00;
 static const double COST_CHANGE_LANES           = 100.00;
 static const double COST_COLLISION_DISTANCE     = 1000.00;
 static const double COST_SPEED_DIFFERENCE       = 50.00;
 
-/* DECLARATIONS **************************************************************/
+/* STRUCT DECLARATIONS **************************************************************/
 
 namespace CardND
 {
@@ -49,63 +50,16 @@ struct Kinematics
 } /* namespace PathPlanning */
 } /* namespace CardND */
 
+/* STATIC DECLARATIONS *******************************************************/
+
+static std::stringstream g_logStream;
+
 /* STATIC FUNCTIONS **********************************************************/
 
 namespace CardND
 {
 namespace PathPlanning
 {
-
-static bool
-checkCollision(
-  const double egoVehicleS,
-  const double collisionDistance,
-  const int pathSize,
-  const int targetLane,
-  const Vehicle& vehicle)
-{
-  const double laneD             = 2 + 4 * targetLane;
-  const double laneLowerLimit    = laneD - 2;
-  const double laneUpperLimit    = laneD + 2;
-  bool         isOnCollisionPath = false;
-
-  const double d     = vehicle.getD();
-  const double speed = vehicle.getSpeed();
-
-  if (d > laneLowerLimit && d < laneUpperLimit)
-  {
-    const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * speed;
-    const double s                 = vehicle.getS() + finalPathDistance;
-    const bool   isOnSamePath      = s > egoVehicleS;
-
-    if (isOnSamePath && (s - egoVehicleS) < collisionDistance)
-      isOnCollisionPath = true;
-  }
-
-  return isOnCollisionPath;
-}
-
-static bool
-checkCollision(
-  const double egoVehicleS,
-  const int pathSize,
-  const int targetLane,
-  const std::map<size_t, Vehicle>& detectedVehicles)
-{
-  bool possibleCollision = false;
-
-  std::map<size_t, Vehicle>::const_iterator vehicle = detectedVehicles.begin();
-
-  for (; vehicle != detectedVehicles.end(); ++vehicle)
-  {
-    possibleCollision = checkCollision(egoVehicleS, COLLISION_DISTANCE, pathSize, targetLane, vehicle->second);
-
-    if (possibleCollision)
-      break;
-  }
-
-  return possibleCollision;
-}
 
 static std::map< int, std::vector<Vehicle> >
 sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
@@ -131,38 +85,6 @@ sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
   return result;
 }
 
-static int
-chooseLane(
-  const double egoVehicleS,
-  const int pathSize,
-  const int currentLane,
-  const Road& road,
-  const std::map<size_t, Vehicle>& detectedVehicles)
-{
-  std::vector<int> possibleLanes;
-  int              finalLane = currentLane;
-
-  possibleLanes.push_back(currentLane - 1);
-  possibleLanes.push_back(currentLane + 1);
-
-  for (int i = 0; i < possibleLanes.size(); ++i)
-  {
-    int        lane        = possibleLanes[i];
-    const bool isValidLane = lane >= 0 && lane <= road.getLaneCount() - 1;
-
-    if (!isValidLane)
-      continue;
-
-    if (checkCollision(egoVehicleS, pathSize, lane, detectedVehicles) == false)
-    {
-      finalLane = lane;
-      break;
-    }
-  }
-
-  return finalLane;
-}
-
 static Kinematics
 getBestKinematics(
   const double egoVehicleS,
@@ -181,11 +103,11 @@ getBestKinematics(
 
   for (int i = 0; i < possibleLanes.size(); ++i)
   {
-    int        lane        = possibleLanes[i];
-    const bool isValidLane = lane >= 0 && lane <= road.getLaneCount() - 1;
+    int        lane            = possibleLanes[i];
+    const bool isValidLane     = lane >= 0 && lane <= road.getLaneCount() - 1;
     Kinematics currentKinematics;
 
-    std::cout << "  Checking lane " << lane << "..." << std::endl;
+    g_logStream << "  Checking lane " << lane << "..." << std::endl;
 
     currentKinematics.score        = 0;
     currentKinematics.speed        = maxSpeed;
@@ -200,14 +122,14 @@ getBestKinematics(
 
     if (detectedVehicles.find(lane) != detectedVehicles.end())
     {
+      double minDistance = std::numeric_limits<double>::max();
+
       const std::vector<Vehicle>           vehiclesInlane = detectedVehicles.at(lane);
       std::vector<Vehicle>::const_iterator vehicle        = vehiclesInlane.begin();
 
-      double bestDistanceToEgo = 0;
-
       for (; vehicle != vehiclesInlane.end(); ++vehicle)
       {
-        std::cout << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() <<std::endl;
+        g_logStream << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() <<std::endl;
 
         const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
         const double s                 = vehicle->getS() + finalPathDistance;
@@ -221,8 +143,12 @@ getBestKinematics(
 
         if (!isAhead)
         {
-          distanceToEgo     = abs(vehicle->getS() - egoVehicleS);
+//          distanceToEgo     = abs(vehicle->getS() - egoVehicleS);
           collisionDistance = PASSING_COLLISION_DISTANCE;
+        }
+        else if (distanceToEgo < minDistance)
+        {
+          minDistance = distanceToEgo;
         }
 
         if (distanceToEgo < collisionDistance)
@@ -232,31 +158,31 @@ getBestKinematics(
           currentKinematics.score += collisionDistance / distanceToEgo * COST_COLLISION_DISTANCE;
         }
 
-        std::cout << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
+        g_logStream << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
 
         if (isAhead && isOnCollision)
         {
-          // TODO: Model what to do on critical collision. Happened when a car unexpectedly changed lanes.
-          //const bool isOnCriticalCollision = distanceToEgo < CRITICAL_COLLISION_DISTANCE;
-
           currentKinematics.speed        = vehicle->getSpeed();
           currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
 
-          const double speedDifference = maxSpeed - currentKinematics.speed;
-
-          if (speedDifference > 0)
-            currentKinematics.score += speedDifference * COST_SPEED_DIFFERENCE;
+//          const double speedDifference = maxSpeed - currentKinematics.speed;
+//
+//          if (speedDifference > 0)
+//            currentKinematics.score += speedDifference * COST_SPEED_DIFFERENCE;
         }
       }
+
+      currentKinematics.score += (1.0 / minDistance) * 30.0;
+      g_logStream << "    Minimum vehicle distance: " << minDistance << std::endl;
     }
 
-    std::cout << "    Final lane score: " << currentKinematics.score << std::endl;
+    g_logStream << "    Final lane score: "         << currentKinematics.score << std::endl;
 
     if (currentKinematics.score < bestKinematics.score)
       bestKinematics = currentKinematics;
   }
 
-  std::cout << "  Best Kinematics - score: " << bestKinematics.score << ", lane: " << bestKinematics.lane << ", acceleration: " << bestKinematics.acceleration << std::endl;
+  g_logStream << "  Best Kinematics - score: " << bestKinematics.score << ", lane: " << bestKinematics.lane << ", acceleration: " << bestKinematics.acceleration << std::endl;
 
   return bestKinematics;
 }
@@ -301,9 +227,11 @@ TrajectoryPlanner::setPointsInterval(const double interval)
 Trajectory
 TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 {
+  g_logStream.str(std::string());
+
   static int analisysCount = 0;
 
-  std::cout << "Starting analysis " << analisysCount << "..." << std::endl;
+  g_logStream << "Starting analysis " << analisysCount << "..." << std::endl;
 
   analisysCount++;
 
@@ -314,7 +242,7 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   bool                      possibleCollision = false;
   Trajectory                trajectory;
 
-  std::cout << "  Ego vehicle is at s: " << currentcarS << " in lane: " << m_currentLane << " at simulator speed: " << vehicle.getSpeed() << " my speed: " << m_currentSpeed << std::endl;
+  g_logStream << "  Ego vehicle is at s: " << currentcarS << " in lane: " << m_currentLane << " at simulator speed: " << vehicle.getSpeed() << " my speed: " << m_currentSpeed << std::endl;
 
   std::map< int, std::vector<Vehicle> > detectedVehiclesByLane = sortByLane(m_road, vehicle.getDetectedVehicles());
 
@@ -329,7 +257,7 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   const Kinematics kinematics = getBestKinematics(currentcarS, previousPathSize, m_currentLane, m_road, detectedVehiclesByLane);
 
   if (m_currentLane != kinematics.lane)
-    std::cout << "  ======= CHANGING LANES ======" << std::endl;
+    g_logStream << "  ======= CHANGING LANES ======" << std::endl;
 
   m_currentLane = kinematics.lane;
 
@@ -450,6 +378,9 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 
   trajectory.trajectoryX = next_x_vals;
   trajectory.trajectoryY = next_y_vals;
+
+  if (ACTIVATE_LOGS)
+    std::cout << g_logStream.str();
 
   return trajectory;
 }
