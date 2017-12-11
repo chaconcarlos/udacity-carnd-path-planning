@@ -79,8 +79,8 @@ class TrajectoryPlanner
   private:
 
     int    m_maxTrajectoryPoints;
-    int    m_currentLane;
-    double m_currentSpeed;
+    int    m_targetLane;
+    double m_targetSpeed;
     double m_pointsInterval;
     double m_referenceSpeed;
     Road   m_road;

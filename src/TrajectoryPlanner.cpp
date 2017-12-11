@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 #include <cmath>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <iterator>
@@ -17,7 +18,7 @@
 
 /* DEFINITIONS ***************************************************************/
 
-static const bool   ACTIVATE_LOGS                = false;
+static const bool   ACTIVATE_LOGS                = true;
 static const int    DEFAULT_TRAJECTORY_POINTS    = 50;
 static const int    DEFAULT_REFERENCE_LANE       = 1;
 static const double DEFAULT_POINTS_INTERVAL      = 0.02;
@@ -29,7 +30,7 @@ static const double MAXIMUM_HORIZON_CAR_DISTANCE = 100.0;
 static const double TRAJECTORY_DISTANCE          = 30.0;
 static const double DEFAULT_ACCELERATION         = .224;
 static const double COST_COLLISION               = 10000.00;
-static const double COST_CHANGE_LANES            = 100.00;
+static const double COST_CHANGE_LANES            = 1000.00;
 static const double COST_COLLISION_DISTANCE      = 1000.00;
 static const double COST_SPEED_DIFFERENCE        = 50.00;
 
@@ -61,6 +62,20 @@ namespace CardND
 {
 namespace PathPlanning
 {
+
+static std::string
+getElapsedTime(const std::chrono::time_point<std::chrono::steady_clock>& start)
+{
+  auto              end = std::chrono::steady_clock::now();
+  std::stringstream stream;
+
+  stream << std::chrono::duration_cast<std::chrono::hours>(end - start).count()        << ":";
+  stream << std::chrono::duration_cast<std::chrono::minutes>(end - start).count()      << ":";
+  stream << std::chrono::duration_cast<std::chrono::seconds>(end - start).count()      << ":";
+  stream << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
+
+  return stream.str();
+}
 
 static std::map< int, std::vector<Vehicle> >
 sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
@@ -106,6 +121,7 @@ getBestKinematics(
   {
     int        lane            = possibleLanes[i];
     const bool isValidLane     = lane >= 0 && lane <= road.getLaneCount() - 1;
+    const bool isSameLane      = lane == currentLane;
     Kinematics currentKinematics;
 
     g_logStream << "  Checking lane " << lane << "..." << std::endl;
@@ -115,11 +131,11 @@ getBestKinematics(
     currentKinematics.acceleration = DEFAULT_ACCELERATION;
     currentKinematics.lane         = lane;
 
-    if (lane != currentLane)
-      currentKinematics.score += COST_CHANGE_LANES;
-
     if (!isValidLane)
       continue;
+
+    if (!isSameLane)
+      currentKinematics.score += COST_CHANGE_LANES;
 
     if (detectedVehicles.find(lane) != detectedVehicles.end())
     {
@@ -130,21 +146,27 @@ getBestKinematics(
 
       for (; vehicle != vehiclesInlane.end(); ++vehicle)
       {
-        g_logStream << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() <<std::endl;
+        g_logStream << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() << " m/s " <<std::endl;
 
-        const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
-        const double s                 = vehicle->getS() + finalPathDistance;
-        const bool   isAhead           = s > egoVehicleS;
-        double       collisionDistance = COLLISION_DISTANCE;
-        double       distanceToEgo     = abs(s - egoVehicleS);
-        bool         isOnCollision     = false;
+        const double finalPathDistance     = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
+        const double s                     = vehicle->getS() + finalPathDistance;
+        const bool   isAhead               = s > egoVehicleS;
+        double       collisionDistance     = COLLISION_DISTANCE;
+        double       distanceToEgo         = abs(s - egoVehicleS);
+        double       collisionCost         = COST_COLLISION;
+        double       collisionDistanceCost = COST_COLLISION_DISTANCE;
+        bool         isOnCollision         = false;
 
         if (distanceToEgo == 0)
           distanceToEgo = std::numeric_limits<double>::epsilon();
 
-        if (!isAhead)
+        if (!isAhead && isSameLane)
         {
-//          distanceToEgo     = abs(vehicle->getS() - egoVehicleS);
+          collisionCost         = 0;
+          collisionDistanceCost = 0;
+        }
+        else if (!isAhead)
+        {
           collisionDistance = PASSING_COLLISION_DISTANCE;
         }
         else if (distanceToEgo < minDistance)
@@ -155,15 +177,15 @@ getBestKinematics(
         if (distanceToEgo < collisionDistance)
         {
           isOnCollision            = true;
-          currentKinematics.score += COST_COLLISION;
-          currentKinematics.score += collisionDistance / distanceToEgo * COST_COLLISION_DISTANCE;
+          currentKinematics.score += collisionCost;
+          currentKinematics.score += collisionDistance / distanceToEgo * collisionDistanceCost;
         }
 
         g_logStream << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
 
         if (isAhead && isOnCollision)
         {
-          currentKinematics.speed        = vehicle->getSpeed();
+          currentKinematics.speed        = vehicle->getSpeed() * 2.24;
           currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
 
 //          const double speedDifference = maxSpeed - currentKinematics.speed;
@@ -173,8 +195,8 @@ getBestKinematics(
         }
       }
 
-      if (minDistance < MAXIMUM_HORIZON_CAR_DISTANCE)
-        currentKinematics.score += (1.0 / minDistance) * 30.0;
+      //if (minDistance < MAXIMUM_HORIZON_CAR_DISTANCE)
+      currentKinematics.score += (1.0 / minDistance) * 30.0;
 
       g_logStream << "    Minimum vehicle distance: " << minDistance << std::endl;
     }
@@ -202,8 +224,8 @@ namespace PathPlanning
 
 TrajectoryPlanner::TrajectoryPlanner(const Road& road)
 : m_maxTrajectoryPoints(DEFAULT_TRAJECTORY_POINTS)
-, m_currentLane(DEFAULT_REFERENCE_LANE)
-, m_currentSpeed(0)
+, m_targetLane(DEFAULT_REFERENCE_LANE)
+, m_targetSpeed(0)
 , m_pointsInterval(DEFAULT_POINTS_INTERVAL)
 , m_referenceSpeed(0)
 , m_road(road)
@@ -232,9 +254,10 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 {
   g_logStream.str(std::string());
 
-  static int analisysCount = 0;
+  static int                                                analisysCount = 0;
+  static std::chrono::time_point<std::chrono::steady_clock> startClock    = std::chrono::steady_clock::now();
 
-  g_logStream << "Starting analysis " << analisysCount << "..." << std::endl;
+  g_logStream << getElapsedTime(startClock) << " - " << analisysCount << " - Starting analysis..." << std::endl;
 
   analisysCount++;
 
@@ -245,7 +268,8 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   bool                      possibleCollision = false;
   Trajectory                trajectory;
 
-  g_logStream << "  Ego vehicle is at s: " << currentcarS << " in lane: " << m_currentLane << " at simulator speed: " << vehicle.getSpeed() << " my speed: " << m_currentSpeed << std::endl;
+  g_logStream << "  Ego vehicle is at s: " << currentcarS << " in lane: " << m_targetLane << " at simulator speed: " << vehicle.getSpeed() << " my speed: " << m_targetSpeed << std::endl;
+  g_logStream << "  Points left from previous trajectory: " << previousPathSize << std::endl;
 
   std::map< int, std::vector<Vehicle> > detectedVehiclesByLane = sortByLane(m_road, vehicle.getDetectedVehicles());
 
@@ -257,12 +281,12 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 //  if (possibleCollision)
 //    m_currentLane = chooseLane(currentcarS, previousPathSize, m_currentLane, m_road, vehicle.getDetectedVehicles());
 
-  const Kinematics kinematics = getBestKinematics(currentcarS, previousPathSize, m_currentLane, m_road, detectedVehiclesByLane);
+  const Kinematics kinematics = getBestKinematics(currentcarS, previousPathSize, m_targetLane, m_road, detectedVehiclesByLane);
 
-  if (m_currentLane != kinematics.lane)
+  if (m_targetLane != kinematics.lane)
     g_logStream << "  ======= CHANGING LANES ======" << std::endl;
 
-  m_currentLane = kinematics.lane;
+  m_targetLane = kinematics.lane;
 
   // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
   // Later we will interpolate these waypoints with a spline
@@ -308,7 +332,7 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   const std::vector<double> mapYs = m_road.getWaypointsY();
   const std::vector<double> mapS  = m_road.getWaypointsS();
 
-  const double laneD = 2 + 4 * m_currentLane;
+  const double laneD = 2 + 4 * m_targetLane;
 
   std::vector<double> next_wp0 = toCartesian(currentcarS + 30, laneD, mapS, mapXs, mapYs);
   std::vector<double> next_wp1 = toCartesian(currentcarS + 60, laneD, mapS, mapXs, mapYs);
@@ -352,14 +376,26 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 
   for (int i = 1; i <= m_maxTrajectoryPoints - previousPathSize; ++i)
   {
-    const double newSpeed = m_currentSpeed + kinematics.acceleration;
+    const double newSpeed = m_targetSpeed + kinematics.acceleration;
 
-    if (newSpeed < m_referenceSpeed)
-      m_currentSpeed = newSpeed;
+//    if (newSpeed <= kinematics.speed)
+//      m_currentSpeed = newSpeed;
+//    else if (newSpeed > m_referenceSpeed)
+//      m_currentSpeed = m_referenceSpeed;
+
+    if (newSpeed > m_referenceSpeed && kinematics.acceleration > 0)
+      m_targetSpeed = m_referenceSpeed;
+    else if (newSpeed < kinematics.speed && kinematics.acceleration < 0)
+      m_targetSpeed = kinematics.speed;
     else
-      m_currentSpeed = m_referenceSpeed;
+      m_targetSpeed = newSpeed;
 
-    const double n       = target_dist / (DEFAULT_POINTS_INTERVAL * m_currentSpeed / 2.24); // 2.24 from the conversion to m/s
+//    if (newSpeed < m_referenceSpeed)
+//      m_targetSpeed = newSpeed;
+//    else
+//      m_targetSpeed = m_referenceSpeed;
+
+    const double n       = target_dist / (DEFAULT_POINTS_INTERVAL * m_targetSpeed / 2.24); // 2.24 from the conversion to m/s
     double       x_point = x_add_on + target_x / n;
     double       y_point = spline(x_point);
 
