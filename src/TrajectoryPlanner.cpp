@@ -114,7 +114,10 @@ sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
       const double vehicleD       = vehicle->second.getD();
 
       if (vehicleD > laneLowerLimit && vehicleD < laneUpperLimit)
+      {
         result[i].push_back(vehicle->second);
+        break;
+      }
     }
   }
 
