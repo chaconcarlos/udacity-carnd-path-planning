@@ -26,7 +26,7 @@ There is two types of collisions the planner can detect: collisions in the same 
 ##### ** Minimum vehicle distance cost **
 This represents the cost of the distance of the vehicle that is the nearest to the ego vehicle (The bigger the distance, the lower the cost). This helps to break ties when there's more than one available lane to change, and to prevent that the ego vehicle goes to a lane that will encounter another slow car. 
 
-![](/home/carlos/work/source/repo_sdce/repo_courses_udacity/SDCE/CarND-Path-Planning-Project/report_images/change_lanes_min_distance.gif  "Lane change by best minimum nearest vehicle distance.")
+![](report_images/change_lanes_min_distance.gif  "Lane change by best minimum nearest vehicle distance.")
 *Here ego changes lane based in the best minimum nearest vehicle distance.*
 
 ####3. Get the kinematics for the best lane
@@ -39,20 +39,20 @@ The kinematics for the chosen lane will be used to the generation of the waypoin
 ###Result
 As a result of the implementation, the ego vehicle can travel around 10 miles without any incident (could be longer, my tests didn't go farther than that), always trying to keep the most safest and eficient trajectory, and trying to keep a speed close to the limit.
 
-![](/home/carlos/work/source/repo_sdce/repo_courses_udacity/SDCE/CarND-Path-Planning-Project/report_images/maintain_lane_change_on_better.gif "Here ego maintains speed during traffic, and changes lanes when the planner finds a lane with a better speed.")
+![](report_images/maintain_lane_change_on_better.gif "Here ego maintains speed during traffic, and changes lanes when the planner finds a lane with a better speed.")
 *Here ego maintains speed during traffic, and changes lanes when the planner finds a lane with a better speed.*
 
-![](/home/carlos/work/source/repo_sdce/repo_courses_udacity/SDCE/CarND-Path-Planning-Project/report_images/controlled_pass.gif)  
+![](report_images/controlled_pass.gif)  
 *In this case, the ego vehicle chose the lane with less traffic. Notice how when it finds a slower vehicle after changing, checks for vehicles in other lanes to make a safe lane change.*
 
 ###Improvements
 I think maybe the path could be smoother, maybe with the use of the JMT. In some cases, there's sudden lane changes, that are safe and in the jerk valid range, but they seem sudden:
 
-![](/home/carlos/work/source/repo_sdce/repo_courses_udacity/SDCE/CarND-Path-Planning-Project/report_images/sudden_lane_change.gif) 
+![](report_images/sudden_lane_change.gif) 
 
 I also found some cases where ego had some lane indecision (given that sometimes the traffic doesn't keep a constant velocity). Maybe this can be solved by analyzing previous states of the surrounding vehicles, and setting a range of speed that can be considered better.
 
-![](/home/carlos/work/source/repo_sdce/repo_courses_udacity/SDCE/CarND-Path-Planning-Project/report_images/lane_indecision.gif) 
+![](report_images/lane_indecision.gif) 
 
 In this project I didn't implement afinite state machine perse, so maybe this can help the next iteration of the planner to know what was the intention of the last motion. Also, the code could use some refactoring, in the form of using a decorator pattern to implement the different cost calculations. 
 
