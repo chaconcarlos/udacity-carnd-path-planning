@@ -163,9 +163,9 @@ getLaneKinematics(
   {
     const double finalPathDistance = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
     const double s                 = vehicle->getS() + finalPathDistance;
+    const double distanceToEgo     = s != egoVehicleS ? abs(s - egoVehicleS) : std::numeric_limits<double>::epsilon();
     const bool   isAhead           = s > egoVehicleS;
     double       collisionDistance = COLLISION_DISTANCE;
-    double       distanceToEgo     = s != egoVehicleS ? abs(s - egoVehicleS) : std::numeric_limits<double>::epsilon();
     bool         isOnCollision     = false;
 
     g_logStream << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() << " m/s ";
