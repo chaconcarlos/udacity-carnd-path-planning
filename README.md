@@ -48,6 +48,8 @@ As a result of the implementation, the ego vehicle can travel around 10 miles wi
 
 *In this case, the ego vehicle chose the lane with less traffic. Notice how when it finds a slower vehicle after changing, checks for vehicles in other lanes to make a safe lane change.*
 
+A video of the whole run around the track can be watched [here](https://www.youtube.com/watch?v=uQJ2BG9fUT8)
+
 ### Improvements
 I think maybe the path could be smoother, maybe with the use of the JMT. In some cases, there's sudden lane changes, that are safe and in the jerk valid range, but they seem sudden:
 
