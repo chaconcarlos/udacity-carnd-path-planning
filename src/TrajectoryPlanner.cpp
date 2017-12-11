@@ -120,6 +120,86 @@ sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
   return result;
 }
 
+static Kinematics
+getLaneKinematics(
+  const int lane,
+  const int currentLane,
+  const double maxSpeed,
+  const double egoVehicleS,
+  const double pathSize,
+  const std::vector<Vehicle>& vehiclesInlane)
+{
+  const bool isSameLane = lane == currentLane;
+  Kinematics currentKinematics;
+
+  g_logStream << "  Checking lane " << lane << "..." << std::endl;
+
+  currentKinematics.score        = 0;
+  currentKinematics.speed        = maxSpeed;
+  currentKinematics.acceleration = DEFAULT_ACCELERATION;
+  currentKinematics.lane         = lane;
+
+  if (!isSameLane)
+   currentKinematics.score += COST_CHANGE_LANES;
+
+  double minDistance = std::numeric_limits<double>::max();
+
+  std::vector<Vehicle>::const_iterator vehicle = vehiclesInlane.begin();
+
+  for (; vehicle != vehiclesInlane.end(); ++vehicle)
+  {
+   g_logStream << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() << " m/s " <<std::endl;
+
+   const double finalPathDistance     = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
+   const double s                     = vehicle->getS() + finalPathDistance;
+   const bool   isAhead               = s > egoVehicleS;
+   double       collisionDistance     = COLLISION_DISTANCE;
+   double       distanceToEgo         = abs(s - egoVehicleS);
+   double       collisionCost         = COST_COLLISION;
+   double       collisionDistanceCost = COST_COLLISION_DISTANCE;
+   bool         isOnCollision         = false;
+
+   if (distanceToEgo == 0)
+     distanceToEgo = std::numeric_limits<double>::epsilon();
+
+   if (!isAhead && isSameLane)
+   {
+     collisionCost         = 0;
+     collisionDistanceCost = 0;
+   }
+   else if (!isAhead)
+   {
+     collisionDistance = PASSING_COLLISION_DISTANCE;
+   }
+   else if (distanceToEgo < minDistance)
+   {
+     minDistance = distanceToEgo;
+   }
+
+   if (distanceToEgo < collisionDistance)
+   {
+     isOnCollision            = true;
+     currentKinematics.score += collisionCost;
+     currentKinematics.score += collisionDistance / distanceToEgo * collisionDistanceCost;
+   }
+
+   g_logStream << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
+
+   if (isAhead && isOnCollision)
+   {
+     currentKinematics.speed        = vehicle->getSpeed() * MILES_CONVERSION_FACTOR;
+     currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
+   }
+  }
+
+  currentKinematics.score += (1.0 / minDistance) * 30.0;
+
+  g_logStream << "    Minimum vehicle distance: " << minDistance             << std::endl;
+  g_logStream << "    Final lane score: "         << currentKinematics.score << std::endl;
+
+  return currentKinematics;
+}
+
 /**
  * @brief Gets the best motion parameters for a vehicle, given its location, surrounding vehicles, road, and location.
  *
@@ -149,82 +229,19 @@ getBestKinematics(
 
   for (int i = 0; i < possibleLanes.size(); ++i)
   {
-    int        lane            = possibleLanes[i];
-    const bool isValidLane     = lane >= 0 && lane <= road.getLaneCount() - 1;
-    const bool isSameLane      = lane == currentLane;
+    int        lane        = possibleLanes[i];
+    const bool isValidLane = lane >= 0 && lane <= road.getLaneCount() - 1;
     Kinematics currentKinematics;
-
-    g_logStream << "  Checking lane " << lane << "..." << std::endl;
-
-    currentKinematics.score        = 0;
-    currentKinematics.speed        = maxSpeed;
-    currentKinematics.acceleration = DEFAULT_ACCELERATION;
-    currentKinematics.lane         = lane;
 
     if (!isValidLane)
       continue;
 
-    if (!isSameLane)
-      currentKinematics.score += COST_CHANGE_LANES;
+    const std::map< int, std::vector<Vehicle> >::const_iterator vehicles = detectedVehicles.find(lane);
 
     if (detectedVehicles.find(lane) != detectedVehicles.end())
-    {
-      double minDistance = std::numeric_limits<double>::max();
-
-      const std::vector<Vehicle>           vehiclesInlane = detectedVehicles.at(lane);
-      std::vector<Vehicle>::const_iterator vehicle        = vehiclesInlane.begin();
-
-      for (; vehicle != vehiclesInlane.end(); ++vehicle)
-      {
-        g_logStream << "    Analyzing vehicle on s: " << vehicle->getS() << ", speed:" << vehicle->getSpeed() << " m/s " <<std::endl;
-
-        const double finalPathDistance     = static_cast<double>(pathSize) * DEFAULT_POINTS_INTERVAL * vehicle->getSpeed();
-        const double s                     = vehicle->getS() + finalPathDistance;
-        const bool   isAhead               = s > egoVehicleS;
-        double       collisionDistance     = COLLISION_DISTANCE;
-        double       distanceToEgo         = abs(s - egoVehicleS);
-        double       collisionCost         = COST_COLLISION;
-        double       collisionDistanceCost = COST_COLLISION_DISTANCE;
-        bool         isOnCollision         = false;
-
-        if (distanceToEgo == 0)
-          distanceToEgo = std::numeric_limits<double>::epsilon();
-
-        if (!isAhead && isSameLane)
-        {
-          collisionCost         = 0;
-          collisionDistanceCost = 0;
-        }
-        else if (!isAhead)
-        {
-          collisionDistance = PASSING_COLLISION_DISTANCE;
-        }
-        else if (distanceToEgo < minDistance)
-        {
-          minDistance = distanceToEgo;
-        }
-
-        if (distanceToEgo < collisionDistance)
-        {
-          isOnCollision            = true;
-          currentKinematics.score += collisionCost;
-          currentKinematics.score += collisionDistance / distanceToEgo * collisionDistanceCost;
-        }
-
-        g_logStream << "    Distance to ego: " << distanceToEgo << ", is ahead? " << isAhead << " is on Collision? " << isOnCollision << std::endl;
-
-        if (isAhead && isOnCollision)
-        {
-          currentKinematics.speed        = vehicle->getSpeed() * MILES_CONVERSION_FACTOR;
-          currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
-        }
-      }
-
-      currentKinematics.score += (1.0 / minDistance) * 30.0;
-      g_logStream << "    Minimum vehicle distance: " << minDistance << std::endl;
-    }
-
-    g_logStream << "    Final lane score: " << currentKinematics.score << std::endl;
+      currentKinematics = getLaneKinematics(lane, currentLane, maxSpeed, egoVehicleS, pathSize, vehicles->second);
+    else
+      currentKinematics = getLaneKinematics(lane, currentLane, maxSpeed, egoVehicleS, pathSize, std::vector<Vehicle>());
 
     if (currentKinematics.score < bestKinematics.score)
       bestKinematics = currentKinematics;
