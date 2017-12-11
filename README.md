@@ -3,27 +3,30 @@
 ### Introduction
 In this project your goal is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. You will be provided the car's localization and sensor fusion data, there is also a sparse map list of waypoints around the highway. The car should try to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible, note that other cars will try to change lanes too. The car should avoid hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. The car should be able to make one complete loop around the 6946m highway. Since the car is trying to go 50 MPH, it should take a little over 5 minutes to complete 1 loop. Also the car should not experience total acceleration over 10 m/s^2^ and jerk that is greater than 10 m/s^3^.
 
-###Implementation
+### Implementation
 
 For the solution, I implemented the following process:
 
-####1. Parse data package from simulator.
+#### 1. Parse data package from simulator.
 In this step, the JSON message is parsed and converted in a instance of the **Vehicle** class, that contains all data of the ego vehicle, and also a list of the detected vehicles that are in the sensor fusion data. This instance is then given to the **TrajectoryPlanner** class, that implements the algorithms that will calculate the safest and most eficient trajectory path.
-####2. Calculate stats for each lane.
+
+#### 2. Calculate stats for each lane.
 After the data from the simulator has been processed, the detected vehicles are sorted by lane, to make easier the calculation of the kinematics and costs of every potential trajectory. This is implemented by checking all possible lanes (the current lane, and the side lanes that the vehicle can switch to) for conditions that add to the cost of the kinematics of switching (or staying) in the analyzed lane. The cost (or score) of each lane starts at 0, and keeps adding up. The cost is calculated based on this metrics:
 
-##### **Change lane cost ** 
+##### **Change lane cost** 
 Since staying in the same lane is preferred to switch to other lanes, changing lane adds 10^3^ to the cost of the kinematics for that lane. This cost is relatively low, but is high enough to prevent switching lanes when there can be a ties.
-##### **Collision cost ** 
+
+##### **Collision cost** 
 Safety is the priority, and that is why the chance of a collision with other vehicle adds the highest cost to the kinematics of a lane, with a value of 10^5^. This makes the vehicle to change lanes as soon a slower vehicle is detected in the current lane. Also the distance of the slower vehicle to the ego vehicle is factored in the cost, to break ties and choose the lane with the safest distance to other vehicles. 
 
-  ```c++
+```c++
       currentKinematics.score += COST_COLLISION;
       currentKinematics.score += collisionDistance / distanceToEgo * COST_COLLISION_DISTANCE;
 ```
 
 There is two types of collisions the planner can detect: collisions in the same lane, or collisions in another lanes. The collisions in the same lane occur when there's a vehicle going slowly in the current lane in a range from 0 to 30 meters. Collisions in other lanes are checked to verify if a lane change is possible; in the case, the collision distance with vehicles coming from the back is set to 10 meters. When a collision with a vehicle ahead is detected, the recommended speed of the motion is set to the speed of that vehicle.
-##### ** Minimum vehicle distance cost **
+
+##### **Minimum vehicle distance cost**
 This represents the cost of the distance of the vehicle that is the nearest to the ego vehicle (The bigger the distance, the lower the cost). This helps to break ties when there's more than one available lane to change, and to prevent that the ego vehicle goes to a lane that will encounter another slow car. 
 
 ![](report_images/change_lanes_min_distance.gif  "Lane change by best minimum nearest vehicle distance.")
