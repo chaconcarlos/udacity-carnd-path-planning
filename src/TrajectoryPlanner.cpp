@@ -18,21 +18,19 @@
 
 /* DEFINITIONS ***************************************************************/
 
-static const bool   ACTIVATE_LOGS                = true;
+static const bool   ACTIVATE_LOGS                = false;
 static const int    DEFAULT_TRAJECTORY_POINTS    = 50;
 static const int    DEFAULT_REFERENCE_LANE       = 1;
 static const double DEFAULT_POINTS_INTERVAL      = 0.02;
 static const double MAX_SPEED_OFFSET             = 0.5;
 static const double COLLISION_DISTANCE           = 30.0;
 static const double PASSING_COLLISION_DISTANCE   = 10.0;
-static const double CRITICAL_COLLISION_DISTANCE  = 10.0;
-static const double MAXIMUM_HORIZON_CAR_DISTANCE = 100.0;
 static const double TRAJECTORY_DISTANCE          = 30.0;
 static const double DEFAULT_ACCELERATION         = .224;
 static const double COST_COLLISION               = 10000.00;
 static const double COST_CHANGE_LANES            = 1000.00;
 static const double COST_COLLISION_DISTANCE      = 1000.00;
-static const double COST_SPEED_DIFFERENCE        = 50.00;
+static const double MILES_CONVERSION_FACTOR      = 2.24;
 
 /* STRUCT DECLARATIONS **************************************************************/
 
@@ -41,6 +39,9 @@ namespace CardND
 namespace PathPlanning
 {
 
+/**
+ * @brief Describes a car motion.
+ */
 struct Kinematics
 {
   double score        = std::numeric_limits<double>::max();
@@ -54,6 +55,9 @@ struct Kinematics
 
 /* STATIC DECLARATIONS *******************************************************/
 
+/**
+ * @brief Log stream. Should be flushed after every execution of the planner.
+ */
 static std::stringstream g_logStream;
 
 /* STATIC FUNCTIONS **********************************************************/
@@ -63,6 +67,13 @@ namespace CardND
 namespace PathPlanning
 {
 
+/**
+ * @brief Gets the elapsed time given a start timepoint.
+ *
+ * @param start The start timepoint.
+ *
+ * @return A string with the time elapsed.
+ */
 static std::string
 getElapsedTime(const std::chrono::time_point<std::chrono::steady_clock>& start)
 {
@@ -77,6 +88,14 @@ getElapsedTime(const std::chrono::time_point<std::chrono::steady_clock>& start)
   return stream.str();
 }
 
+/**
+ * @brief Returns a map of detected vehicles sorted by the lane the are driving on.
+ *
+ * @param road             The road information.
+ * @param detectedVehicles The vehicles.
+ *
+ * @return A map of detected vehicles sorted by the lane the are driving on.
+ */
 static std::map< int, std::vector<Vehicle> >
 sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
 {
@@ -101,6 +120,17 @@ sortByLane(const Road& road, const std::map<size_t, Vehicle>& detectedVehicles)
   return result;
 }
 
+/**
+ * @brief Gets the best motion parameters for a vehicle, given its location, surrounding vehicles, road, and location.
+ *
+ * @param egoVehicleS      The s coordinate of the vehicle.
+ * @param pathSize         The path size the car will follow.
+ * @param currentLane      The current lane the vehicle is driving on.
+ * @param road             The road information.
+ * @param detectedVehicles The surrounding vehicles data.
+ *
+ * @return The best motion parameters for a vehicle, given its location, surrounding vehicles, road, and location.
+ */
 static Kinematics
 getBestKinematics(
   const double egoVehicleS,
@@ -185,23 +215,16 @@ getBestKinematics(
 
         if (isAhead && isOnCollision)
         {
-          currentKinematics.speed        = vehicle->getSpeed() * 2.24;
+          currentKinematics.speed        = vehicle->getSpeed() * MILES_CONVERSION_FACTOR;
           currentKinematics.acceleration = DEFAULT_ACCELERATION * -1;
-
-//          const double speedDifference = maxSpeed - currentKinematics.speed;
-//
-//          if (speedDifference > 0)
-//            currentKinematics.score += speedDifference * COST_SPEED_DIFFERENCE;
         }
       }
 
-      //if (minDistance < MAXIMUM_HORIZON_CAR_DISTANCE)
       currentKinematics.score += (1.0 / minDistance) * 30.0;
-
       g_logStream << "    Minimum vehicle distance: " << minDistance << std::endl;
     }
 
-    g_logStream << "    Final lane score: "         << currentKinematics.score << std::endl;
+    g_logStream << "    Final lane score: " << currentKinematics.score << std::endl;
 
     if (currentKinematics.score < bestKinematics.score)
       bestKinematics = currentKinematics;
@@ -275,11 +298,6 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
 
   if (previousPathSize > 0)
     currentcarS = vehicle.getFinalS();
-
-//  possibleCollision = checkCollision(currentcarS, previousPathSize, m_currentLane, vehicle.getDetectedVehicles());
-
-//  if (possibleCollision)
-//    m_currentLane = chooseLane(currentcarS, previousPathSize, m_currentLane, m_road, vehicle.getDetectedVehicles());
 
   const Kinematics kinematics = getBestKinematics(currentcarS, previousPathSize, m_targetLane, m_road, detectedVehiclesByLane);
 
@@ -378,11 +396,6 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
   {
     const double newSpeed = m_targetSpeed + kinematics.acceleration;
 
-//    if (newSpeed <= kinematics.speed)
-//      m_currentSpeed = newSpeed;
-//    else if (newSpeed > m_referenceSpeed)
-//      m_currentSpeed = m_referenceSpeed;
-
     if (newSpeed > m_referenceSpeed && kinematics.acceleration > 0)
       m_targetSpeed = m_referenceSpeed;
     else if (newSpeed < kinematics.speed && kinematics.acceleration < 0)
@@ -390,12 +403,7 @@ TrajectoryPlanner::generateTrajectory(const Vehicle& vehicle)
     else
       m_targetSpeed = newSpeed;
 
-//    if (newSpeed < m_referenceSpeed)
-//      m_targetSpeed = newSpeed;
-//    else
-//      m_targetSpeed = m_referenceSpeed;
-
-    const double n       = target_dist / (DEFAULT_POINTS_INTERVAL * m_targetSpeed / 2.24); // 2.24 from the conversion to m/s
+    const double n       = target_dist / (DEFAULT_POINTS_INTERVAL * m_targetSpeed / MILES_CONVERSION_FACTOR);
     double       x_point = x_add_on + target_x / n;
     double       y_point = spline(x_point);
 
