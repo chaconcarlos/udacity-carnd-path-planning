@@ -62,9 +62,9 @@ I also found some cases where ego had some lane indecision (given that sometimes
 
 ![](report_images/lane_indecision.gif) 
 
-In this project I didn't implement afinite state machine perse, so maybe this can help the next iteration of the planner to know what was the intention of the last motion. Also, the code could use some refactoring, in the form of using a decorator pattern to implement the different cost calculations. 
+In this project I didn't implement a finite state machine perse, so maybe this can help the next iteration of the planner to know what was the intention of the last motion. Also, the code could use some refactoring, in the form of using a decorator pattern to implement the different cost calculations. 
 
-Another improvement could be to calculate most lane and detected vehicles statistics, which can help in implementing a better design of the architecture of the solution and reduce the overhead of multiple cycles on the list of lanes and vehicles.
+Another improvement could be to pre-calculate most lane and detected vehicles statistics, which can help in implementing a better design of the architecture of the solution and reduce the overhead of multiple cycles on the list of lanes and vehicles.
 
 # CarND-Path-Planning-Project
 Self-Driving Car Engineer Nanodegree Program
